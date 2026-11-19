@@ -29,7 +29,7 @@ jobs:
           cache: true
 
       - name: Generate Android platform project
-        run: flutter create --platforms=android --org com.herasat --project-name vpn --no-pub .
+        run: flutter create --platforms=android --org com.herasat --project-name herasat --no-pub .
 
       - name: Configure Android app
         run: |
