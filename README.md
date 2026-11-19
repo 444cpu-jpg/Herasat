@@ -17,7 +17,7 @@ Herasat is an Android VPN client with a Persian/English dark interface. It uses 
 Requirements: Flutter 3.44+ (Dart 3.12+), JDK 17 and Android SDK.
 
 ```bash
-flutter create --platforms=android --org com.herasat --project-name vpn --no-pub .
+flutter create --platforms=android --org com.herasat --project-name herasat --no-pub .
 # Set android/app minSdk to 24 or higher.
 flutter pub get
 flutter analyze
