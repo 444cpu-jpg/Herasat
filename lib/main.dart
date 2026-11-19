@@ -136,7 +136,6 @@ class _HomePageState extends State<HomePage> {
   SingBoxConnectionStatus _status = SingBoxConnectionStatus.disconnected;
   SingBoxConnectionStats? _stats;
   String? _selectedLink;
-  String? _message;
   bool _busy = false;
   bool _loadingSources = false;
   bool _english = false;
@@ -171,7 +170,6 @@ class _HomePageState extends State<HomePage> {
 
   void _notify(String message) {
     if (!mounted) return;
-    setState(() => _message = message);
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
       ..showSnackBar(SnackBar(content: Text(message)));
@@ -181,7 +179,6 @@ class _HomePageState extends State<HomePage> {
     if (_loadingSources) return;
     setState(() {
       _loadingSources = true;
-      _message = null;
     });
     var added = 0;
     var failed = 0;
