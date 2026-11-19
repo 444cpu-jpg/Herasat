@@ -31,8 +31,10 @@ jobs:
       - name: Generate Android platform project
         run: flutter create --platforms=android --org com.herasat --project-name vpn --no-pub .
 
-      - name: Set app label
-        run: sed -i 's/android:label="vpn"/android:label="Herasat"/' android/app/src/main/AndroidManifest.xml
+      - name: Configure Android app
+        run: |
+          sed -i 's/android:label="vpn"/android:label="Herasat"/' android/app/src/main/AndroidManifest.xml
+          sed -i 's/minSdk = flutter.minSdkVersion/minSdk = 24/' android/app/build.gradle.kts
 
       - name: Resolve dependencies
         run: flutter pub get
