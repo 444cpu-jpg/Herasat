@@ -33,7 +33,7 @@ jobs:
 
       - name: Configure Android app
         run: |
-          sed -i 's/android:label="vpn"/android:label="Herasat"/' android/app/src/main/AndroidManifest.xml
+          sed -i 's/android:label="[^"]*"/android:label="Herasat"/' android/app/src/main/AndroidManifest.xml
           sed -i 's/minSdk = flutter.minSdkVersion/minSdk = 24/' android/app/build.gradle.kts
 
       - name: Resolve dependencies
