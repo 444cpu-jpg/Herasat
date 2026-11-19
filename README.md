@@ -26,7 +26,7 @@ flutter build apk --release
 
 The APK is written to `build/app/outputs/flutter-apk/app-release.apk`.
 
-GitHub Actions runs the same process on pushes to `main` and manual workflow dispatch. Download the `Herasat-Android-APK` artifact from the workflow run.
+GitHub Actions runs the same process on pushes to `main` and manual workflow dispatch. Download the `Herasat-Android-APK` artifact from the workflow run. The workflow also runs `flutter analyze` before producing the release APK.
 
 ## Important limitations and security
 
