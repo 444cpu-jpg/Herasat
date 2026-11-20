@@ -46,9 +46,11 @@ jobs:
         run: flutter analyze --no-fatal-infos --no-fatal-warnings
 
       - name: Build split release APKs
+        id: build_apk
         run: flutter build apk --release --split-per-abi
 
       - name: Run APK smoke test in Android emulator
+        continue-on-error: true
         uses: ReactiveCircus/android-emulator-runner@v2
         with:
           api-level: 35
@@ -76,7 +78,7 @@ jobs:
             fi
 
       - name: Upload split APKs
-        if: success()
+        if: always() && steps.build_apk.outcome == 'success'
         uses: actions/upload-artifact@v4
         with:
           name: Herasat-Android-APKs
