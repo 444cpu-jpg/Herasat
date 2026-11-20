@@ -11,7 +11,7 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 60
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -43,11 +43,10 @@ jobs:
         run: rm -f test/widget_test.dart
 
       - name: Analyze Dart code
-        continue-on-error: true
         run: flutter analyze --no-fatal-infos --no-fatal-warnings
 
-      - name: Build release APK
-        run: flutter build apk --release
+      - name: Build split release APKs
+        run: flutter build apk --release --split-per-abi
 
       - name: Run APK smoke test in Android emulator
         uses: ReactiveCircus/android-emulator-runner@v2
@@ -58,7 +57,7 @@ jobs:
           disable-animations: true
           script: |
             set -euo pipefail
-            adb install -r build/app/outputs/flutter-apk/app-release.apk
+            adb install -r build/app/outputs/flutter-apk/app-x86_64-release.apk
             adb shell am force-stop com.herasat.herasat
             adb shell monkey -p com.herasat.herasat 1
             sleep 15
@@ -76,10 +75,10 @@ jobs:
               exit 1
             fi
 
-      - name: Upload APK
+      - name: Upload split APKs
         uses: actions/upload-artifact@v4
         with:
-          name: Herasat-Android-APK
+          name: Herasat-Android-APKs
           path: build/app/outputs/flutter-apk/app-release.apk
           if-no-files-found: error
           retention-days: 14
