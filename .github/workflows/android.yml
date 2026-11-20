@@ -76,7 +76,7 @@ jobs:
             fi
 
       - name: Upload split APKs
-        if: always()
+        if: success()
         uses: actions/upload-artifact@v4
         with:
           name: Herasat-Android-APKs
