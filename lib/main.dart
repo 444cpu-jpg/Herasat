@@ -236,7 +236,7 @@ class _HomePageState extends State<HomePage> {
 
   Future<void> _syncSavedServers() async {
     if (_nodes.isEmpty) return;
-    await _core.importServerConfigs(_nodes.map((n) => n.link).join('\\n'), subscriptionId: 'herasat-discovered');
+    await _core.importServerConfigs(_nodes.map((n) => n.link).join('\n'), subscriptionId: 'herasat-discovered');
   }
 
   bool _requiresTunnelTest(ProxyNode n) { final p=n.protocol; return p=='HYSTERIA'||p=='HYSTERIA2'||p=='HY2'||p=='TUIC'||p=='WIREGUARD'||p=='WG'; }
@@ -246,7 +246,7 @@ class _HomePageState extends State<HomePage> {
     setState(() { _testingServers=true; for(final n in _nodes){n.testState=NodeTestState.testing;n.latencyMs=null;n.testMessage=null;} });
     var tested=0; var reachable=0;
     try {
-      final profiles=await _core.importServerConfigs(_nodes.map((n)=>n.link).join('\\n'),subscriptionId:'herasat-discovered');
+      final profiles=await _core.importServerConfigs(_nodes.map((n)=>n.link).join('\n'),subscriptionId:'herasat-discovered');
       final byId=<String,ProxyNode>{}; final count=profiles.length<_nodes.length?profiles.length:_nodes.length;
       for(var i=0;i<count;i++){byId[profiles[i].id]=_nodes[i];}
       if(byId.isEmpty) throw StateError(t('هیچ پروفایل معتبری برای آزمایش ساخته نشد','No valid profiles to test'));
