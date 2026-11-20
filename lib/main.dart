@@ -32,9 +32,14 @@ Future<void> main() async {
 }
 
 class ProxyNode {
-  const ProxyNode(this.link, this.source);
+  ProxyNode(this.link, this.source);
+
+enum NodeTestState { unknown, testing, reachable, failed, unsupported }
   final String link;
   final String source;
+  NodeTestState testState = NodeTestState.unknown;
+  num? latencyMs;
+  String? testMessage;
 
   String get protocol => link.substring(0, link.indexOf('://')).toUpperCase();
 
@@ -132,13 +137,16 @@ class _HomePageState extends State<HomePage> {
   final List<ProxyNode> _nodes = [];
   StreamSubscription<SingBoxConnectionStatus>? _statusSubscription;
   StreamSubscription<SingBoxConnectionStats>? _statsSubscription;
+  StreamSubscription<dynamic>? _stateSubscription;
 
   SingBoxConnectionStatus _status = SingBoxConnectionStatus.disconnected;
   SingBoxConnectionStats? _stats;
   String? _selectedLink;
   bool _busy = false;
   bool _loadingSources = false;
+  bool _testingServers = false;
   bool _english = false;
+  String? _lastConnectionError;
 
   bool get _active => _status == SingBoxConnectionStatus.connected ||
       _status == SingBoxConnectionStatus.connecting;
@@ -154,6 +162,11 @@ class _HomePageState extends State<HomePage> {
       _statsSubscription = _core.watchConnectionStats().listen((value) {
         if (mounted) setState(() => _stats = value);
       });
+      _stateSubscription = _core.watchConnectionState().listen((value) {
+        if (!mounted) return;
+        setState(() => _lastConnectionError = value.error?.toString());
+      });
+      _restoreSavedServers();
     }
   }
 
@@ -161,6 +174,7 @@ class _HomePageState extends State<HomePage> {
   void dispose() {
     _statusSubscription?.cancel();
     _statsSubscription?.cancel();
+    _stateSubscription?.cancel();
     _subscriptionController.dispose();
     _client.close();
     super.dispose();
@@ -203,12 +217,52 @@ class _HomePageState extends State<HomePage> {
       }
       if (mounted) setState(() {});
     }
+    if (widget.coreReady && _nodes.isNotEmpty) { try { await _syncSavedServers(); } catch (_) { failed++; } }
     if (mounted) {
       setState(() => _loadingSources = false);
-      _notify(t('$added سرور جدید اضافه شد؛ خطای منبع: $failed',
-          '$added new servers added; source errors: $failed'));
+      _notify(t('$added سرور جدید اضافه شد؛ خطای منبع: $failed', '$added new servers added; source errors: $failed'));
     }
+    if (widget.coreReady && _nodes.isNotEmpty) await _testServers();
   }
+
+  Future<void> _restoreSavedServers() async {
+    try {
+      final saved = await _core.getServerConfigs();
+      if (!mounted || _nodes.isNotEmpty) return;
+      for (final profile in saved) { final outbound = profile.outbound; if (outbound == null) continue; final link = SingBoxShareLink.toLink(outbound); if (!_nodes.any((n) => n.link == link)) _nodes.add(ProxyNode(link, t('ذخیره‌شده', 'Saved profile'))); }
+      if (mounted) setState(() {});
+    } catch (_) {}
+  }
+
+  Future<void> _syncSavedServers() async {
+    if (_nodes.isEmpty) return;
+    await _core.importServerConfigs(_nodes.map((n) => n.link).join('\\n'), subscriptionId: 'herasat-discovered');
+  }
+
+  bool _requiresTunnelTest(ProxyNode n) { final p=n.protocol; return p=='HYSTERIA'||p=='HYSTERIA2'||p=='HY2'||p=='TUIC'||p=='WIREGUARD'||p=='WG'; }
+
+  Future<void> _testServers() async {
+    if (!widget.coreReady || _testingServers || _nodes.isEmpty) return;
+    setState(() { _testingServers=true; for(final n in _nodes){n.testState=NodeTestState.testing;n.latencyMs=null;n.testMessage=null;} });
+    var tested=0; var reachable=0;
+    try {
+      final profiles=await _core.importServerConfigs(_nodes.map((n)=>n.link).join('\\n'),subscriptionId:'herasat-discovered');
+      final byId=<String,ProxyNode>{}; final count=profiles.length<_nodes.length?profiles.length:_nodes.length;
+      for(var i=0;i<count;i++){byId[profiles[i].id]=_nodes[i];}
+      if(byId.isEmpty) throw StateError(t('هیچ پروفایل معتبری برای آزمایش ساخته نشد','No valid profiles to test'));
+      for(final n in _nodes){if(_requiresTunnelTest(n)){n.testState=NodeTestState.unsupported;n.testMessage=t('پروتکل UDP؛ نیازمند آزمون تونل','UDP protocol; tunnel test required');}}
+      final tcp=profiles.where((p)=>byId[p.id]!=null&&!_requiresTunnelTest(byId[p.id]!)).toList();
+      await for(final result in _core.pingServers(tcp,concurrency:6)){
+        final n=byId[result.serverId];if(n==null)continue;tested++;n.testState=result.success?NodeTestState.reachable:NodeTestState.failed;n.latencyMs=result.success?result.ping:null;n.testMessage=result.success?t('پاسخ TCP دریافت شد','TCP response received'):(result.errorMessage??t('بدون پاسخ','No response'));if(result.success)reachable++;if(mounted)setState((){});
+      }
+      _nodes.sort((a,b){int rank(ProxyNode n)=>switch(n.testState){NodeTestState.reachable=>0,NodeTestState.unsupported=>1,NodeTestState.testing=>2,NodeTestState.unknown=>3,NodeTestState.failed=>4};final r=rank(a).compareTo(rank(b));return r!=0?r:(a.latencyMs??1<<30).compareTo(b.latencyMs??1<<30);});
+      if(_selectedLink==null){final best=_nodes.where((n)=>n.testState==NodeTestState.reachable).toList();if(best.isNotEmpty)_selectedLink=best.first.link;}
+      if(mounted){setState((){});_notify(t('آزمایش پایان یافت: $reachable از $tested سرور پاسخ TCP دادند؛ تضمین اتصال VPN نیست.','Test complete: $reachable of $tested servers answered TCP; this does not guarantee a working VPN tunnel.'));}
+    }catch(e){for(final n in _nodes){if(n.testState==NodeTestState.testing){n.testState=NodeTestState.failed;n.testMessage=e.toString();}}if(mounted)_notify(t('خطا در آزمایش سرورها: $e','Server test error: $e'));}
+    finally{if(mounted)setState(()=>_testingServers=false);}
+  }
+
+  String _nodeTestLabel(ProxyNode n)=>switch(n.testState){NodeTestState.unknown=>t('آزمایش نشده','Not tested'),NodeTestState.testing=>t('در حال آزمایش…','Testing…'),NodeTestState.reachable=>'${n.latencyMs??'—'} ms • ${t('پاسخ TCP','TCP reachable')}',NodeTestState.failed=>t('بدون پاسخ TCP','TCP unreachable'),NodeTestState.unsupported=>t('نیازمند آزمون هنگام اتصال','Requires tunnel test')};
 
   Future<void> _addSubscription() async {
     final input = _subscriptionController.text.trim();
@@ -233,8 +287,10 @@ class _HomePageState extends State<HomePage> {
         }
       }
       _subscriptionController.clear();
+      if (widget.coreReady) { try { await _syncSavedServers(); } catch (_) {} }
       if (mounted) setState(() {});
       _notify(t('$added سرور از ورودی اضافه شد', '$added servers imported'));
+      if (added > 0 && widget.coreReady) await _testServers();
     } catch (e) {
       _notify(t('خطا در دریافت اشتراک: $e', 'Subscription error: $e'));
     } finally {
@@ -243,15 +299,18 @@ class _HomePageState extends State<HomePage> {
   }
 
   Future<void> _connect(ProxyNode node) async {
-    if (!widget.coreReady || _busy) return;
+    if (!widget.coreReady || _busy || _testingServers) return;
     setState(() {
       _busy = true;
       _selectedLink = node.link;
     });
     try {
       await _core.connect(node.link);
+      if (_core.status != SingBoxConnectionStatus.connected) throw StateError(t('تونل به وضعیت متصل نرسید', 'Tunnel did not reach connected state'));
+      _lastConnectionError = null;
       _notify(t('اتصال برقرار شد', 'Connected'));
     } catch (e) {
+      _lastConnectionError = e.toString();
       _notify(t('اتصال ناموفق: $e', 'Connection failed: $e'));
     } finally {
       if (mounted) setState(() => _busy = false);
@@ -342,11 +401,11 @@ class _HomePageState extends State<HomePage> {
                     SizedBox(
                       width: double.infinity,
                       child: FilledButton.icon(
-                        onPressed: !widget.coreReady || _busy ? null : (_active ? _disconnect : null),
+                        onPressed: !widget.coreReady || _busy || _testingServers ? null : (_active ? _disconnect : (_selectedLink == null ? null : () { final chosen = _nodes.where((n) => n.link == _selectedLink).toList(); if (chosen.isNotEmpty) _connect(chosen.first); })),
                         icon: Icon(_active ? Icons.power_settings_new : Icons.lock),
                         label: Text(_active
                             ? t('قطع اتصال', 'Disconnect')
-                            : t('برای اتصال یک سرور انتخاب کنید', 'Choose a server below to connect')),
+                            : (_selectedLink == null ? t('ابتدا یک سرور انتخاب کنید', 'Select a server first') : t('اتصال به سرور انتخاب‌شده', 'Connect to selected server'))),
                         style: FilledButton.styleFrom(
                           backgroundColor: _active ? Colors.redAccent : accent,
                           foregroundColor: Colors.black,
@@ -354,6 +413,7 @@ class _HomePageState extends State<HomePage> {
                         ),
                       ),
                     ),
+                    if (_lastConnectionError != null && !_active) Padding(padding: const EdgeInsets.only(top: 8), child: Text(_lastConnectionError!, textAlign: TextAlign.center, style: const TextStyle(color: Colors.orangeAccent, fontSize: 12))),
                     if (_busy) const Padding(
                       padding: EdgeInsets.only(top: 12),
                       child: LinearProgressIndicator(),
@@ -383,6 +443,8 @@ class _HomePageState extends State<HomePage> {
                     ? t('در حال دریافت و بررسی منابع…', 'Fetching and parsing sources…')
                     : t('جست‌وجوی سرورهای رایگان', 'Fetch free servers')),
               ),
+              const SizedBox(height: 8),
+              OutlinedButton.icon(onPressed: _testingServers || _nodes.isEmpty ? null : _testServers, icon: _testingServers ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.speed), label: Text(_testingServers ? t('در حال آزمایش سرورها…', 'Testing servers…') : t('آزمایش و مرتب‌سازی سرورها', 'Test and sort servers'))),
               const SizedBox(height: 18),
               Text(t('افزودن لینک یا اشتراک', 'Add a link or subscription'),
                   style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
