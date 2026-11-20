@@ -497,9 +497,10 @@ class _HomePageState extends State<HomePage> {
                         backgroundColor: accent.withValues(alpha: .15),
                         child: Icon(Icons.dns_outlined, color: accent),
                       ),
+                      onTap: () => setState(() => _selectedLink = node.link),
                       title: Text(node.name, maxLines: 1, overflow: TextOverflow.ellipsis),
-                      subtitle: Text('${node.protocol} • ${node.host}\n${node.source}',
-                          maxLines: 2, overflow: TextOverflow.ellipsis),
+                      subtitle: Text('${node.protocol} • ${node.host}\n${_nodeTestLabel(node)} • ${node.source}',
+                          maxLines: 3, overflow: TextOverflow.ellipsis),
                       isThreeLine: true,
                       trailing: IconButton(
                         tooltip: t('اتصال به این سرور', 'Connect to this server'),
