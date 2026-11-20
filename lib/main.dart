@@ -155,7 +155,7 @@ class HerasatApp extends StatelessWidget {
           elevation: 0,
           centerTitle: true,
         ),
-        cardTheme: CardTheme(
+        cardTheme: CardThemeData(
           color: const Color(0xFF151D31),
           elevation: 0,
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
