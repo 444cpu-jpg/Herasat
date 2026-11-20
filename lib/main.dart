@@ -31,10 +31,10 @@ Future<void> main() async {
   runApp(HerasatApp(coreReady: ready, initError: initError));
 }
 
+enum NodeTestState { unknown, testing, reachable, failed, unsupported }
+
 class ProxyNode {
   ProxyNode(this.link, this.source);
-
-enum NodeTestState { unknown, testing, reachable, failed, unsupported }
   final String link;
   final String source;
   NodeTestState testState = NodeTestState.unknown;
