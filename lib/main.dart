@@ -90,9 +90,7 @@ List<String> _extractLinks(String raw) {
     try {
       final normalized = base64.normalize(text.replaceAll(RegExp(r'\s+'), ''));
       text = utf8.decode(base64.decode(normalized), allowMalformed: true);
-    } catch (_) {
-      // It may already be plain text or an unsupported subscription format.
-    }
+    } catch (_) {}
   }
 
   final matcher = RegExp(
@@ -157,7 +155,7 @@ class HerasatApp extends StatelessWidget {
           elevation: 0,
           centerTitle: true,
         ),
-        cardTheme: CardThemeData(
+        cardTheme: CardTheme(
           color: const Color(0xFF151D31),
           elevation: 0,
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
@@ -171,7 +169,7 @@ class HerasatApp extends StatelessWidget {
           ),
           enabledBorder: OutlineInputBorder(
             borderRadius: BorderRadius.circular(14),
-            borderSide: BorderSide(color: Colors.white.withValues(alpha: 0.06)),
+            borderSide: BorderSide(color: Colors.white.withOpacity(0.06)),
           ),
           focusedBorder: OutlineInputBorder(
             borderRadius: BorderRadius.circular(14),
@@ -427,13 +425,20 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
         if (mounted) setState(() {});
       }
       _nodes.sort((a, b) {
-        int rank(ProxyNode n) => switch (n.testState) {
-              NodeTestState.reachable => 0,
-              NodeTestState.unsupported => 1,
-              NodeTestState.testing => 2,
-              NodeTestState.unknown => 3,
-              NodeTestState.failed => 4,
-            };
+        int rank(ProxyNode n) {
+          switch (n.testState) {
+            case NodeTestState.reachable:
+              return 0;
+            case NodeTestState.unsupported:
+              return 1;
+            case NodeTestState.testing:
+              return 2;
+            case NodeTestState.unknown:
+              return 3;
+            case NodeTestState.failed:
+              return 4;
+          }
+        }
         final r = rank(a).compareTo(rank(b));
         return r != 0
             ? r
@@ -465,14 +470,20 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     }
   }
 
-  String _nodeTestLabel(ProxyNode n) => switch (n.testState) {
-        NodeTestState.unknown => t('آزمایش نشده', 'Not tested'),
-        NodeTestState.testing => t('در حال آزمایش…', 'Testing…'),
-        NodeTestState.reachable =>
-          '${n.latencyMs ?? '—'} ms • ${t('پاسخ TCP', 'TCP reachable')}',
-        NodeTestState.failed => t('بدون پاسخ TCP', 'TCP unreachable'),
-        NodeTestState.unsupported => t('نیازمند آزمون هنگام اتصال', 'Requires tunnel test'),
-      };
+  String _nodeTestLabel(ProxyNode n) {
+    switch (n.testState) {
+      case NodeTestState.unknown:
+        return t('آزمایش نشده', 'Not tested');
+      case NodeTestState.testing:
+        return t('در حال آزمایش…', 'Testing…');
+      case NodeTestState.reachable:
+        return '${n.latencyMs ?? '—'} ms • ${t('پاسخ TCP', 'TCP reachable')}';
+      case NodeTestState.failed:
+        return t('بدون پاسخ TCP', 'TCP unreachable');
+      case NodeTestState.unsupported:
+        return t('نیازمند آزمون هنگام اتصال', 'Requires tunnel test');
+    }
+  }
 
   Future<void> _addSubscription() async {
     final input = _subscriptionController.text.trim();
@@ -583,9 +594,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
               shape: BoxShape.circle,
               gradient: RadialGradient(
                 colors: [
-                  isConnected
-                      ? accent.withValues(alpha: 0.22)
-                      : const Color(0xFF151D31),
+                  isConnected ? accent.withOpacity(0.22) : const Color(0xFF151D31),
                   const Color(0xFF0B1020),
                 ],
               ),
@@ -593,14 +602,14 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                 color: isConnected
                     ? accent
                     : isConnecting
-                        ? accent.withValues(alpha: 0.6)
-                        : Colors.white.withValues(alpha: 0.12),
+                        ? accent.withOpacity(0.6)
+                        : Colors.white.withOpacity(0.12),
                 width: isConnected ? 3.5 : 2.5,
               ),
               boxShadow: isConnected
                   ? [
                       BoxShadow(
-                        color: accent.withValues(alpha: 0.35),
+                        color: accent.withOpacity(0.35),
                         blurRadius: 24,
                         spreadRadius: 2,
                       ),
@@ -641,7 +650,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
       decoration: BoxDecoration(
         color: const Color(0xFF151D31),
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.06)),
+        border: Border.all(color: Colors.white.withOpacity(0.06)),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -711,7 +720,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
         label: Text(label),
         style: OutlinedButton.styleFrom(
           foregroundColor: Colors.white,
-          side: BorderSide(color: Colors.white.withValues(alpha: 0.12)),
+          side: BorderSide(color: Colors.white.withOpacity(0.12)),
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
         ),
       ),
@@ -726,14 +735,19 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
     switch (node.testState) {
       case NodeTestState.reachable:
         statusDot = const Color(0xFF69F0AE);
+        break;
       case NodeTestState.failed:
         statusDot = Colors.redAccent;
+        break;
       case NodeTestState.testing:
         statusDot = Colors.amber;
+        break;
       case NodeTestState.unsupported:
         statusDot = Colors.purpleAccent;
+        break;
       case NodeTestState.unknown:
         statusDot = Colors.white38;
+        break;
     }
 
     return AnimatedContainer(
@@ -743,7 +757,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
         color: selected ? const Color(0xFF1A2E3A) : const Color(0xFF151D31),
         borderRadius: BorderRadius.circular(16),
         border: Border.all(
-          color: selected ? accent.withValues(alpha: 0.55) : Colors.white.withValues(alpha: 0.05),
+          color: selected ? accent.withOpacity(0.55) : Colors.white.withOpacity(0.05),
           width: selected ? 1.5 : 1,
         ),
       ),
@@ -760,7 +774,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                   width: 44,
                   height: 44,
                   decoration: BoxDecoration(
-                    color: protoColor.withValues(alpha: 0.15),
+                    color: protoColor.withOpacity(0.15),
                     borderRadius: BorderRadius.circular(12),
                   ),
                   child: Center(
@@ -797,7 +811,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: TextStyle(
-                          color: Colors.white.withValues(alpha: 0.55),
+                          color: Colors.white.withOpacity(0.55),
                           fontSize: 12,
                         ),
                       ),
@@ -819,7 +833,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
                               style: TextStyle(
-                                color: Colors.white.withValues(alpha: 0.65),
+                                color: Colors.white.withOpacity(0.65),
                                 fontSize: 11.5,
                               ),
                             ),
@@ -891,7 +905,6 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
               physics: const AlwaysScrollableScrollPhysics(),
               padding: const EdgeInsets.fromLTRB(18, 4, 18, 28),
               children: [
-                // Header + Status
                 Center(
                   child: Column(
                     children: [
@@ -899,7 +912,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                         t('اتصال امن، با انتخاب شما', 'Secure connection, your choice'),
                         style: Theme.of(context).textTheme.titleMedium?.copyWith(
                               fontWeight: FontWeight.w600,
-                              color: Colors.white.withValues(alpha: 0.85),
+                              color: Colors.white.withOpacity(0.85),
                             ),
                       ),
                       const SizedBox(height: 20),
@@ -945,17 +958,15 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                     ],
                   ),
                 ),
-
                 const SizedBox(height: 26),
-
                 if (!widget.coreReady)
                   Container(
                     margin: const EdgeInsets.only(bottom: 18),
                     padding: const EdgeInsets.all(14),
                     decoration: BoxDecoration(
-                      color: Colors.red.withValues(alpha: 0.12),
+                      color: Colors.red.withOpacity(0.12),
                       borderRadius: BorderRadius.circular(14),
-                      border: Border.all(color: Colors.redAccent.withValues(alpha: 0.3)),
+                      border: Border.all(color: Colors.redAccent.withOpacity(0.3)),
                     ),
                     child: Row(
                       children: [
@@ -973,8 +984,6 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                       ],
                     ),
                   ),
-
-                // Discover section
                 Text(
                   t('دریافت سرورها', 'Discover servers'),
                   style: Theme.of(context).textTheme.titleMedium?.copyWith(
@@ -1007,10 +1016,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                     ),
                   ],
                 ),
-
                 const SizedBox(height: 22),
-
-                // Import section
                 Text(
                   t('افزودن لینک یا اشتراک', 'Add link or subscription'),
                   style: Theme.of(context).textTheme.titleMedium?.copyWith(
@@ -1028,8 +1034,8 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                       'لینک اشتراک یا vless:// و vmess:// را وارد کنید',
                       'Paste subscription URL or vless:// / vmess:// link',
                     ),
-                    hintStyle: TextStyle(color: Colors.white.withValues(alpha: 0.35)),
-                    prefixIcon: Icon(Icons.link_rounded, color: Colors.white.withValues(alpha: 0.4)),
+                    hintStyle: TextStyle(color: Colors.white.withOpacity(0.35)),
+                    prefixIcon: Icon(Icons.link_rounded, color: Colors.white.withOpacity(0.4)),
                   ),
                 ),
                 const SizedBox(height: 10),
@@ -1039,10 +1045,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                   label: t('افزودن سرورها', 'Import servers'),
                   primary: false,
                 ),
-
                 const SizedBox(height: 24),
-
-                // Server list header + search
                 Row(
                   children: [
                     Expanded(
@@ -1056,7 +1059,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                       decoration: BoxDecoration(
-                        color: accent.withValues(alpha: 0.15),
+                        color: accent.withOpacity(0.15),
                         borderRadius: BorderRadius.circular(20),
                       ),
                       child: Text(
@@ -1078,8 +1081,8 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                     style: const TextStyle(fontSize: 14),
                     decoration: InputDecoration(
                       hintText: t('جستجو در نام، هاست یا پروتکل…', 'Search name, host or protocol…'),
-                      hintStyle: TextStyle(color: Colors.white.withValues(alpha: 0.35)),
-                      prefixIcon: Icon(Icons.search_rounded, color: Colors.white.withValues(alpha: 0.4)),
+                      hintStyle: TextStyle(color: Colors.white.withOpacity(0.35)),
+                      prefixIcon: Icon(Icons.search_rounded, color: Colors.white.withOpacity(0.4)),
                       suffixIcon: _searchQuery.isNotEmpty
                           ? IconButton(
                               icon: const Icon(Icons.close_rounded, size: 20),
@@ -1094,7 +1097,6 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                   ),
                 ],
                 const SizedBox(height: 12),
-
                 if (_nodes.isEmpty)
                   Container(
                     width: double.infinity,
@@ -1102,14 +1104,14 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                     decoration: BoxDecoration(
                       color: const Color(0xFF151D31),
                       borderRadius: BorderRadius.circular(16),
-                      border: Border.all(color: Colors.white.withValues(alpha: 0.05)),
+                      border: Border.all(color: Colors.white.withOpacity(0.05)),
                     ),
                     child: Column(
                       children: [
                         Icon(
                           Icons.dns_outlined,
                           size: 42,
-                          color: Colors.white.withValues(alpha: 0.25),
+                          color: Colors.white.withOpacity(0.25),
                         ),
                         const SizedBox(height: 12),
                         Text(
@@ -1119,7 +1121,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                           ),
                           textAlign: TextAlign.center,
                           style: TextStyle(
-                            color: Colors.white.withValues(alpha: 0.55),
+                            color: Colors.white.withOpacity(0.55),
                             height: 1.45,
                           ),
                         ),
@@ -1132,13 +1134,12 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                     child: Center(
                       child: Text(
                         t('نتیجه‌ای پیدا نشد', 'No results found'),
-                        style: TextStyle(color: Colors.white.withValues(alpha: 0.5)),
+                        style: TextStyle(color: Colors.white.withOpacity(0.5)),
                       ),
                     ),
                   )
                 else
                   ...filtered.map((node) => _buildServerCard(node, accent)),
-
                 const SizedBox(height: 18),
                 Text(
                   t(
@@ -1146,7 +1147,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                     'Security: public community servers are untrusted. Do not use them for banking, sensitive data, or important logins. A tunnel starts only when you tap a server Connect button.',
                   ),
                   style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: Colors.orangeAccent.withValues(alpha: 0.9),
+                        color: Colors.orangeAccent.withOpacity(0.9),
                         height: 1.45,
                       ),
                 ),
