@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:sing_box/sing_box.dart';
 
@@ -13,6 +14,13 @@ const _sources = <String>[
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  SystemChrome.setSystemUIOverlayStyle(const SystemUiOverlayStyle(
+    statusBarColor: Colors.transparent,
+    statusBarIconBrightness: Brightness.light,
+    systemNavigationBarColor: Color(0xFF0B1020),
+    systemNavigationBarIconBrightness: Brightness.light,
+  ));
+
   var ready = false;
   String? initError;
   try {
@@ -41,7 +49,11 @@ class ProxyNode {
   num? latencyMs;
   String? testMessage;
 
-  String get protocol => link.substring(0, link.indexOf('://')).toUpperCase();
+  String get protocol {
+    final idx = link.indexOf('://');
+    if (idx <= 0) return 'UNKNOWN';
+    return link.substring(0, idx).toUpperCase();
+  }
 
   String get name {
     try {
@@ -96,6 +108,31 @@ List<String> _extractLinks(String raw) {
   return found.toList();
 }
 
+Color _protocolColor(String protocol) {
+  switch (protocol.toUpperCase()) {
+    case 'VLESS':
+      return const Color(0xFF55D6BE);
+    case 'VMESS':
+      return const Color(0xFF6C9BFF);
+    case 'TROJAN':
+      return const Color(0xFFFF8A65);
+    case 'SS':
+    case 'SHADOWSOCKS':
+      return const Color(0xFFFFD54F);
+    case 'HYSTERIA':
+    case 'HYSTERIA2':
+    case 'HY2':
+      return const Color(0xFFCE93D8);
+    case 'TUIC':
+      return const Color(0xFF80CBC4);
+    case 'WIREGUARD':
+    case 'WG':
+      return const Color(0xFF90CAF9);
+    default:
+      return const Color(0xFF90A4AE);
+  }
+}
+
 class HerasatApp extends StatelessWidget {
   const HerasatApp({super.key, required this.coreReady, this.initError});
   final bool coreReady;
@@ -115,416 +152,16 @@ class HerasatApp extends StatelessWidget {
         ),
         scaffoldBackgroundColor: const Color(0xFF0B1020),
         useMaterial3: true,
-      ),
-      home: HomePage(coreReady: coreReady, initError: initError),
-    );
-  }
-}
-
-class HomePage extends StatefulWidget {
-  const HomePage({super.key, required this.coreReady, this.initError});
-  final bool coreReady;
-  final String? initError;
-
-  @override
-  State<HomePage> createState() => _HomePageState();
-}
-
-class _HomePageState extends State<HomePage> {
-  final _subscriptionController = TextEditingController();
-  final _client = http.Client();
-  final _core = SingBox.instance;
-  final List<ProxyNode> _nodes = [];
-  StreamSubscription<SingBoxConnectionStatus>? _statusSubscription;
-  StreamSubscription<SingBoxConnectionStats>? _statsSubscription;
-  StreamSubscription<dynamic>? _stateSubscription;
-
-  SingBoxConnectionStatus _status = SingBoxConnectionStatus.disconnected;
-  SingBoxConnectionStats? _stats;
-  String? _selectedLink;
-  bool _busy = false;
-  bool _loadingSources = false;
-  bool _testingServers = false;
-  bool _english = false;
-  String? _lastConnectionError;
-
-  bool get _active => _status == SingBoxConnectionStatus.connected ||
-      _status == SingBoxConnectionStatus.connecting;
-
-  @override
-  void initState() {
-    super.initState();
-    if (widget.coreReady) {
-      _status = _core.status;
-      _statusSubscription = _core.watchConnectionStatus().listen((value) {
-        if (mounted) setState(() => _status = value);
-      });
-      _statsSubscription = _core.watchConnectionStats().listen((value) {
-        if (mounted) setState(() => _stats = value);
-      });
-      _stateSubscription = _core.watchConnectionState().listen((value) {
-        if (!mounted) return;
-        setState(() => _lastConnectionError = value.error?.toString());
-      });
-      _restoreSavedServers();
-    }
-  }
-
-  @override
-  void dispose() {
-    _statusSubscription?.cancel();
-    _statsSubscription?.cancel();
-    _stateSubscription?.cancel();
-    _subscriptionController.dispose();
-    _client.close();
-    super.dispose();
-  }
-
-  String t(String fa, String en) => _english ? en : fa;
-
-  void _notify(String message) {
-    if (!mounted) return;
-    ScaffoldMessenger.of(context)
-      ..hideCurrentSnackBar()
-      ..showSnackBar(SnackBar(content: Text(message)));
-  }
-
-  Future<void> _refreshSources() async {
-    if (_loadingSources) return;
-    setState(() {
-      _loadingSources = true;
-    });
-    var added = 0;
-    var failed = 0;
-    for (final source in _sources) {
-      try {
-        final response = await _client
-            .get(Uri.parse(source), headers: {'User-Agent': 'Herasat-Android/0.2'})
-            .timeout(const Duration(seconds: 18));
-        if (response.statusCode != 200) {
-          failed++;
-          continue;
-        }
-        final links = _extractLinks(response.body);
-        for (final link in links) {
-          if (!_nodes.any((node) => node.link == link)) {
-            _nodes.add(ProxyNode(link, Uri.parse(source).host));
-            added++;
-          }
-        }
-      } catch (_) {
-        failed++;
-      }
-      if (mounted) setState(() {});
-    }
-    if (widget.coreReady && _nodes.isNotEmpty) { try { await _syncSavedServers(); } catch (_) { failed++; } }
-    if (mounted) {
-      setState(() => _loadingSources = false);
-      _notify(t('$added سرور جدید اضافه شد؛ خطای منبع: $failed', '$added new servers added; source errors: $failed'));
-    }
-    if (widget.coreReady && _nodes.isNotEmpty) await _testServers();
-  }
-
-  Future<void> _restoreSavedServers() async {
-    try {
-      final saved = await _core.getServerConfigs();
-      if (!mounted || _nodes.isNotEmpty) return;
-      for (final profile in saved) { final outbound = profile.outbound; if (outbound == null) continue; final link = SingBoxShareLink.toLink(outbound); if (!_nodes.any((n) => n.link == link)) _nodes.add(ProxyNode(link, t('ذخیره‌شده', 'Saved profile'))); }
-      if (mounted) setState(() {});
-    } catch (_) {}
-  }
-
-  Future<void> _syncSavedServers() async {
-    if (_nodes.isEmpty) return;
-    await _core.importServerConfigs(_nodes.map((n) => n.link).join('\n'), subscriptionId: 'herasat-discovered');
-  }
-
-  bool _requiresTunnelTest(ProxyNode n) { final p=n.protocol; return p=='HYSTERIA'||p=='HYSTERIA2'||p=='HY2'||p=='TUIC'||p=='WIREGUARD'||p=='WG'; }
-
-  Future<void> _testServers() async {
-    if (!widget.coreReady || _testingServers || _nodes.isEmpty) return;
-    setState(() { _testingServers=true; for(final n in _nodes){n.testState=NodeTestState.testing;n.latencyMs=null;n.testMessage=null;} });
-    var tested=0; var reachable=0;
-    try {
-      final profiles=await _core.importServerConfigs(_nodes.map((n)=>n.link).join('\n'),subscriptionId:'herasat-discovered');
-      final byId=<String,ProxyNode>{}; final count=profiles.length<_nodes.length?profiles.length:_nodes.length;
-      for(var i=0;i<count;i++){byId[profiles[i].id]=_nodes[i];}
-      if(byId.isEmpty) throw StateError(t('هیچ پروفایل معتبری برای آزمایش ساخته نشد','No valid profiles to test'));
-      for(final n in _nodes){if(_requiresTunnelTest(n)){n.testState=NodeTestState.unsupported;n.testMessage=t('پروتکل UDP؛ نیازمند آزمون تونل','UDP protocol; tunnel test required');}}
-      final tcp=profiles.where((p)=>byId[p.id]!=null&&!_requiresTunnelTest(byId[p.id]!)).toList();
-      await for(final result in _core.pingServers(tcp,concurrency:6)){
-        final n=byId[result.serverId];if(n==null)continue;tested++;n.testState=result.success?NodeTestState.reachable:NodeTestState.failed;n.latencyMs=result.success?result.ping:null;n.testMessage=result.success?t('پاسخ TCP دریافت شد','TCP response received'):(result.errorMessage??t('بدون پاسخ','No response'));if(result.success)reachable++;if(mounted)setState((){});
-      }
-      _nodes.sort((a,b){int rank(ProxyNode n)=>switch(n.testState){NodeTestState.reachable=>0,NodeTestState.unsupported=>1,NodeTestState.testing=>2,NodeTestState.unknown=>3,NodeTestState.failed=>4};final r=rank(a).compareTo(rank(b));return r!=0?r:(a.latencyMs??1<<30).compareTo(b.latencyMs??1<<30);});
-      if(_selectedLink==null){final best=_nodes.where((n)=>n.testState==NodeTestState.reachable).toList();if(best.isNotEmpty)_selectedLink=best.first.link;}
-      if(mounted){setState((){});_notify(t('آزمایش پایان یافت: $reachable از $tested سرور پاسخ TCP دادند؛ تضمین اتصال VPN نیست.','Test complete: $reachable of $tested servers answered TCP; this does not guarantee a working VPN tunnel.'));}
-    }catch(e){for(final n in _nodes){if(n.testState==NodeTestState.testing){n.testState=NodeTestState.failed;n.testMessage=e.toString();}}if(mounted)_notify(t('خطا در آزمایش سرورها: $e','Server test error: $e'));}
-    finally{if(mounted)setState(()=>_testingServers=false);}
-  }
-
-  String _nodeTestLabel(ProxyNode n)=>switch(n.testState){NodeTestState.unknown=>t('آزمایش نشده','Not tested'),NodeTestState.testing=>t('در حال آزمایش…','Testing…'),NodeTestState.reachable=>'${n.latencyMs??'—'} ms • ${t('پاسخ TCP','TCP reachable')}',NodeTestState.failed=>t('بدون پاسخ TCP','TCP unreachable'),NodeTestState.unsupported=>t('نیازمند آزمون هنگام اتصال','Requires tunnel test')};
-
-  Future<void> _addSubscription() async {
-    final input = _subscriptionController.text.trim();
-    if (input.isEmpty) return;
-    setState(() => _busy = true);
-    try {
-      String body = input;
-      final uri = Uri.tryParse(input);
-      if (uri != null && (uri.scheme == 'https' || uri.scheme == 'http')) {
-        final response = await _client.get(uri).timeout(const Duration(seconds: 20));
-        if (response.statusCode != 200) {
-          throw Exception('HTTP ${response.statusCode}');
-        }
-        body = response.body;
-      }
-      final links = _extractLinks(body);
-      var added = 0;
-      for (final link in links) {
-        if (!_nodes.any((node) => node.link == link)) {
-          _nodes.add(ProxyNode(link, t('اشتراک شخصی', 'Custom subscription')));
-          added++;
-        }
-      }
-      _subscriptionController.clear();
-      if (widget.coreReady) { try { await _syncSavedServers(); } catch (_) {} }
-      if (mounted) setState(() {});
-      _notify(t('$added سرور از ورودی اضافه شد', '$added servers imported'));
-      if (added > 0 && widget.coreReady) await _testServers();
-    } catch (e) {
-      _notify(t('خطا در دریافت اشتراک: $e', 'Subscription error: $e'));
-    } finally {
-      if (mounted) setState(() => _busy = false);
-    }
-  }
-
-  Future<void> _connect(ProxyNode node) async {
-    if (!widget.coreReady || _busy || _testingServers) return;
-    setState(() {
-      _busy = true;
-      _selectedLink = node.link;
-    });
-    try {
-      await _core.connect(node.link);
-      if (_core.status != SingBoxConnectionStatus.connected) throw StateError(t('تونل به وضعیت متصل نرسید', 'Tunnel did not reach connected state'));
-      _lastConnectionError = null;
-      _notify(t('اتصال برقرار شد', 'Connected'));
-    } catch (e) {
-      _lastConnectionError = e.toString();
-      _notify(t('اتصال ناموفق: $e', 'Connection failed: $e'));
-    } finally {
-      if (mounted) setState(() => _busy = false);
-    }
-  }
-
-  Future<void> _disconnect() async {
-    if (_busy) return;
-    setState(() => _busy = true);
-    try {
-      await _core.disconnect();
-      _notify(t('اتصال قطع شد', 'Disconnected'));
-    } catch (e) {
-      _notify(t('خطا در قطع اتصال: $e', 'Disconnect error: $e'));
-    } finally {
-      if (mounted) setState(() => _busy = false);
-    }
-  }
-
-  String _statusLabel() {
-    switch (_status) {
-      case SingBoxConnectionStatus.connected:
-        return t('متصل', 'Connected');
-      case SingBoxConnectionStatus.connecting:
-        return t('در حال اتصال', 'Connecting');
-      case SingBoxConnectionStatus.disconnecting:
-        return t('در حال قطع اتصال', 'Disconnecting');
-      case SingBoxConnectionStatus.disconnected:
-        return t('قطع', 'Disconnected');
-    }
-  }
-
-  String _speed(int? bytes) {
-    if (bytes == null) return '—';
-    if (bytes < 1024) return '$bytes B/s';
-    if (bytes < 1024 * 1024) return '${(bytes / 1024).toStringAsFixed(1)} KB/s';
-    return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB/s';
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final accent = Theme.of(context).colorScheme.primary;
-    return Directionality(
-      textDirection: _english ? TextDirection.ltr : TextDirection.rtl,
-      child: Scaffold(
-        appBar: AppBar(
-          title: const Text('HERASAT', style: TextStyle(fontWeight: FontWeight.w900, letterSpacing: 2)),
-          actions: [
-            TextButton(
-              onPressed: () => setState(() => _english = !_english),
-              child: Text(_english ? 'فارسی' : 'EN'),
-            ),
-          ],
+        appBarTheme: const AppBarTheme(
+          backgroundColor: Color(0xFF0B1020),
+          elevation: 0,
+          centerTitle: true,
         ),
-        body: SafeArea(
-          child: ListView(
-            padding: const EdgeInsets.fromLTRB(18, 8, 18, 24),
-            children: [
-              Center(
-                child: Column(
-                  children: [
-                    Text(t('اتصال امن، با انتخاب شما', 'Secure connection, your choice'),
-                        style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold)),
-                    const SizedBox(height: 18),
-                    Container(
-                      width: 148,
-                      height: 148,
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        border: Border.all(color: accent.withValues(alpha: .65), width: 3),
-                        color: const Color(0xFF151D31),
-                      ),
-                      child: Column(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          Icon(_status == SingBoxConnectionStatus.connected ? Icons.shield : Icons.shield_outlined,
-                              color: accent, size: 42),
-                          const SizedBox(height: 8),
-                          Text(_statusLabel(), style: const TextStyle(fontWeight: FontWeight.bold)),
-                        ],
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-                    if (_stats != null && _status == SingBoxConnectionStatus.connected)
-                      Text('↓ ${_speed(_stats!.downloadSpeed)}     ↑ ${_speed(_stats!.uploadSpeed)}',
-                          style: TextStyle(color: accent, fontWeight: FontWeight.w600)),
-                    const SizedBox(height: 12),
-                    SizedBox(
-                      width: double.infinity,
-                      child: FilledButton.icon(
-                        onPressed: !widget.coreReady || _busy || _testingServers ? null : (_active ? _disconnect : (_selectedLink == null ? null : () { final chosen = _nodes.where((n) => n.link == _selectedLink).toList(); if (chosen.isNotEmpty) _connect(chosen.first); })),
-                        icon: Icon(_active ? Icons.power_settings_new : Icons.lock),
-                        label: Text(_active
-                            ? t('قطع اتصال', 'Disconnect')
-                            : (_selectedLink == null ? t('ابتدا یک سرور انتخاب کنید', 'Select a server first') : t('اتصال به سرور انتخاب‌شده', 'Connect to selected server'))),
-                        style: FilledButton.styleFrom(
-                          backgroundColor: _active ? Colors.redAccent : accent,
-                          foregroundColor: Colors.black,
-                          padding: const EdgeInsets.symmetric(vertical: 15),
-                        ),
-                      ),
-                    ),
-                    if (_lastConnectionError != null && !_active) Padding(padding: const EdgeInsets.only(top: 8), child: Text(_lastConnectionError!, textAlign: TextAlign.center, style: const TextStyle(color: Colors.orangeAccent, fontSize: 12))),
-                    if (_busy) const Padding(
-                      padding: EdgeInsets.only(top: 12),
-                      child: LinearProgressIndicator(),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 24),
-              if (!widget.coreReady)
-                Card(
-                  color: Colors.red.withValues(alpha: .12),
-                  child: Padding(
-                    padding: const EdgeInsets.all(12),
-                    child: Text(t('هسته VPN راه‌اندازی نشد: ${widget.initError ?? "خطای نامشخص"}',
-                        'VPN core failed to initialize: ${widget.initError ?? "Unknown error"}')),
-                  ),
-                ),
-              Text(t('دریافت خودکار سرورها', 'Discover public servers'),
-                  style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
-              const SizedBox(height: 8),
-              OutlinedButton.icon(
-                onPressed: _loadingSources ? null : _refreshSources,
-                icon: _loadingSources
-                    ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2))
-                    : const Icon(Icons.cloud_download_outlined),
-                label: Text(_loadingSources
-                    ? t('در حال دریافت و بررسی منابع…', 'Fetching and parsing sources…')
-                    : t('جست‌وجوی سرورهای رایگان', 'Fetch free servers')),
-              ),
-              const SizedBox(height: 8),
-              OutlinedButton.icon(onPressed: _testingServers || _nodes.isEmpty ? null : _testServers, icon: _testingServers ? const SizedBox(width: 18, height: 18, child: CircularProgressIndicator(strokeWidth: 2)) : const Icon(Icons.speed), label: Text(_testingServers ? t('در حال آزمایش سرورها…', 'Testing servers…') : t('آزمایش و مرتب‌سازی سرورها', 'Test and sort servers'))),
-              const SizedBox(height: 18),
-              Text(t('افزودن لینک یا اشتراک', 'Add a link or subscription'),
-                  style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
-              const SizedBox(height: 8),
-              TextField(
-                controller: _subscriptionController,
-                minLines: 1,
-                maxLines: 3,
-                decoration: InputDecoration(
-                  hintText: t('لینک اشتراک یا vless:// و vmess:// را وارد کنید',
-                      'Paste a subscription URL or vless:// / vmess:// link'),
-                  filled: true,
-                  fillColor: const Color(0xFF151D31),
-                  border: OutlineInputBorder(borderRadius: BorderRadius.circular(14)),
-                ),
-              ),
-              const SizedBox(height: 8),
-              FilledButton.tonalIcon(
-                onPressed: _busy ? null : _addSubscription,
-                icon: const Icon(Icons.add_link),
-                label: Text(t('افزودن سرورها', 'Import servers')),
-              ),
-              const SizedBox(height: 20),
-              Row(
-                children: [
-                  Expanded(
-                    child: Text(t('فهرست سرورها', 'Server list'),
-                        style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.bold)),
-                  ),
-                  Text('${_nodes.length}', style: TextStyle(color: accent, fontWeight: FontWeight.bold)),
-                ],
-              ),
-              const SizedBox(height: 8),
-              if (_nodes.isEmpty)
-                Card(
-                  color: const Color(0xFF151D31),
-                  child: Padding(
-                    padding: const EdgeInsets.all(18),
-                    child: Text(t('هنوز سروری اضافه نشده است. دریافت خودکار را بزنید.',
-                        'No servers yet. Tap Fetch free servers.')),
-                  ),
-                )
-              else
-                ..._nodes.map((node) {
-                  final selected = _selectedLink == node.link;
-                  return Card(
-                    color: selected ? const Color(0xFF1C3440) : const Color(0xFF151D31),
-                    child: ListTile(
-                      leading: CircleAvatar(
-                        backgroundColor: accent.withValues(alpha: .15),
-                        child: Icon(Icons.dns_outlined, color: accent),
-                      ),
-                      onTap: () => setState(() => _selectedLink = node.link),
-                      title: Text(node.name, maxLines: 1, overflow: TextOverflow.ellipsis),
-                      subtitle: Text('${node.protocol} • ${node.host}\n${_nodeTestLabel(node)} • ${node.source}',
-                          maxLines: 3, overflow: TextOverflow.ellipsis),
-                      isThreeLine: true,
-                      trailing: IconButton(
-                        tooltip: t('اتصال به این سرور', 'Connect to this server'),
-                        onPressed: _busy || !widget.coreReady ? null : () => _connect(node),
-                        icon: const Icon(Icons.play_circle_fill),
-                        color: accent,
-                      ),
-                    ),
-                  );
-                }),
-              const SizedBox(height: 14),
-              Text(
-                t('هشدار امنیتی: سرورهای عمومی ناشناس و غیرقابل اعتمادند. برای حساب‌های بانکی، اطلاعات حساس یا ورودهای مهم از آن‌ها استفاده نکنید. اتصال فقط با لمس دکمه کنار سرور آغاز می‌شود.',
-                    'Security: public community servers are untrusted. Do not use them for banking, sensitive data, or important logins. A tunnel starts only when you tap a server Connect button.'),
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Colors.orangeAccent),
-              ),
-              const SizedBox(height: 6),
-              Text('Herasat 0.2.0 • sing-box core',
-                  textAlign: TextAlign.center,
-                  style: Theme.of(context).textTheme.labelSmall?.copyWith(color: Colors.white54)),
-            ],
-          ),
+        cardTheme: CardThemeData(
+          color: const Color(0xFF151D31),
+          elevation: 0,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         ),
-      ),
-    );
-  }
-}
+        inputDecorationTheme: InputDecorationTheme(
+          filled: true,
+          fillColor: const Color(0xFF151
