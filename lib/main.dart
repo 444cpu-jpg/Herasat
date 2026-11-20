@@ -1084,7 +1084,7 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
                         borderRadius: BorderRadius.circular(20),
                       ),
                       child: Text(
-                        '\( {filtered.length} \){_searchQuery.isNotEmpty ? ' / ${_nodes.length}' : ''}',
+                        '${filtered.length}${_searchQuery.isNotEmpty ? ' / ${_nodes.length}' : ''}',
                         style: TextStyle(
                           color: accent,
                           fontWeight: FontWeight.w700,
