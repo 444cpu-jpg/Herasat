@@ -395,13 +395,34 @@ class _HomePageState extends State<HomePage> with TickerProviderStateMixin {
         _nodes.map((n) => n.link).join('\n'),
         subscriptionId: 'herasat-discovered',
       );
+      // importServerConfigs may skip malformed/unsupported links. Never pair
+      // the returned profiles with the original list by index: that can show
+      // one server's latency beside a different server. Recreate each share
+      // link from its parsed outbound and match it to the original node.
       final byId = <String, ProxyNode>{};
-      final count = profiles.length < _nodes.length ? profiles.length : _nodes.length;
-      for (var i = 0; i < count; i++) {
-        byId[profiles[i].id] = _nodes[i];
+      final matchedLinks = <String>{};
+      for (final profile in profiles) {
+        final outbound = profile.outbound;
+        if (outbound == null) continue;
+        final canonicalLink = SingBoxShareLink.toLink(outbound);
+        for (final node in _nodes) {
+          if (!matchedLinks.contains(node.link) && node.link == canonicalLink) {
+            byId[profile.id] = node;
+            matchedLinks.add(node.link);
+            break;
+          }
+        }
       }
       if (byId.isEmpty) {
-        throw StateError(t('هیچ پروفایل معتبری برای آزمایش ساخته نشد', 'No valid profiles to test'));
+        throw StateError(t('هیچ پروفایل معتبری برای آزمایش ساخته نشد', 'No valid profiles could be matched for testing'));
+      }
+      for (final node in _nodes) {
+        if (node.testState == NodeTestState.testing &&
+            !matchedLinks.contains(node.link) &&
+            !_requiresTunnelTest(node)) {
+          node.testState = NodeTestState.failed;
+          node.testMessage = t('پروفایل معتبر از هسته دریافت نشد', 'Core did not return a valid profile');
+        }
       }
       for (final n in _nodes) {
         if (_requiresTunnelTest(n)) {
